@@ -1,0 +1,82 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION      = 'ap-south-1'
+        AWS_ACCOUNT_ID  = '208843796755'
+        ECR_REPO_NAME   = 'devops-demo-app'
+        ECR_REGISTRY    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        IMAGE_TAG       = "${env.BUILD_NUMBER}"
+        IMAGE_URI       = "${ECR_REGISTRY}/${ECR_REPO_NAME}:${IMAGE_TAG}"
+        GIT_CREDENTIALS_ID = 'git-push-creds'   // Jenkins credential with push access to this repo
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build (Maven)') {
+            steps {
+                dir('app') {
+                    sh 'mvn -B clean package -DskipTests'
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                dir('app') {
+                    sh 'mvn -B test'
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                dir('app') {
+                    sh "docker build -t ${IMAGE_URI} -t ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest ."
+                }
+            }
+        }
+
+        stage('Push to ECR') {
+            steps {
+                sh """
+                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                  docker push ${IMAGE_URI}
+                  docker push ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest
+                """
+            }
+        }
+
+        stage('Update Manifest (GitOps)') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${GIT_CREDENTIALS_ID}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+                    sh """
+                      sed -i "s|image: .*|image: ${IMAGE_URI}|" k8s/deployment.yaml
+                      sed -i "s|value: \\".*\\"|value: \\"${IMAGE_TAG}\\"|" k8s/deployment.yaml
+
+                      git config user.email "jenkins@ci.local"
+                      git config user.name "jenkins-ci"
+                      git add k8s/deployment.yaml
+                      git commit -m "ci: deploy image ${IMAGE_TAG}" || echo "Nothing to commit"
+                      git push https://\${GIT_USER}:\${GIT_TOKEN}@\$(git remote get-url origin | sed 's|https://||') HEAD:main
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pushed ${IMAGE_URI} and updated k8s manifest. ArgoCD will auto-sync devops-demo-app."
+        }
+        always {
+            sh 'docker image prune -f || true'
+        }
+    }
+}
