@@ -9,6 +9,7 @@ pipeline {
         IMAGE_TAG       = "${env.BUILD_NUMBER}"
         IMAGE_URI       = "${ECR_REGISTRY}/${ECR_REPO_NAME}:${IMAGE_TAG}"
         GIT_CREDENTIALS_ID = 'git-push-creds'   // Jenkins credential with push access to this repo
+        PROJECT_DIR     = 'devops-project'      // this project lives in a subfolder of the guvi_pro repo
     }
 
     stages {
@@ -21,7 +22,7 @@ pipeline {
 
         stage('Build (Maven)') {
             steps {
-                dir('app') {
+                dir("${PROJECT_DIR}/app") {
                     sh 'mvn -B clean package -DskipTests'
                 }
             }
@@ -29,7 +30,7 @@ pipeline {
 
         stage('Test') {
             steps {
-                dir('app') {
+                dir("${PROJECT_DIR}/app") {
                     sh 'mvn -B test'
                 }
             }
@@ -37,7 +38,7 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                dir('app') {
+                dir("${PROJECT_DIR}/app") {
                     sh "docker build -t ${IMAGE_URI} -t ${ECR_REGISTRY}/${ECR_REPO_NAME}:latest ."
                 }
             }
@@ -57,12 +58,12 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${GIT_CREDENTIALS_ID}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                     sh """
-                      sed -i "s|image: .*|image: ${IMAGE_URI}|" k8s/deployment.yaml
-                      sed -i "s|value: \\".*\\"|value: \\"${IMAGE_TAG}\\"|" k8s/deployment.yaml
+                      sed -i "s|image: .*|image: ${IMAGE_URI}|" ${PROJECT_DIR}/k8s/deployment.yaml
+                      sed -i "s|value: \\".*\\"|value: \\"${IMAGE_TAG}\\"|" ${PROJECT_DIR}/k8s/deployment.yaml
 
                       git config user.email "jenkins@ci.local"
                       git config user.name "jenkins-ci"
-                      git add k8s/deployment.yaml
+                      git add ${PROJECT_DIR}/k8s/deployment.yaml
                       git commit -m "ci: deploy image ${IMAGE_TAG}" || echo "Nothing to commit"
                       git push https://\${GIT_USER}:\${GIT_TOKEN}@\$(git remote get-url origin | sed 's|https://||') HEAD:main
                     """
