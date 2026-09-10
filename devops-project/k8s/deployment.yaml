@@ -18,12 +18,12 @@ spec:
       containers:
         - name: devops-demo-app
           # Jenkins replaces this tag on every build (see Jenkinsfile "Update Manifest" stage)
-          image: 208843796755.dkr.ecr.ap-south-1.amazonaws.com/devops-demo-app:2
+          image: 208843796755.dkr.ecr.ap-south-1.amazonaws.com/devops-demo-app:3
           ports:
             - containerPort: 8080
           env:
             - name: APP_VERSION
-              value: "2"
+              value: "3"
           resources:
             requests:
               cpu: 100m
